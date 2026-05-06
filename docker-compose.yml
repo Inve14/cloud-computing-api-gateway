@@ -1,0 +1,82 @@
+# Main Docker Compose orchestration file.
+# Manages all services for local development and production on the EC2 VM.
+#
+# Usage:
+#   cp .env.example .env   # fill in passwords first
+#   docker compose up -d
+#
+# This file grows as new microservices are added. Each service that is not
+# yet scaffolded should be added here when its services/ directory is ready.
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # catalog-db — PostgreSQL 16 for the Catalog service
+  # One instance for now (master only). A read-replica will be added in a
+  # later step to demonstrate PostgreSQL streaming replication.
+  # ---------------------------------------------------------------------------
+  catalog-db:
+    image: postgres:16.3-alpine
+    container_name: catalog-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      # Persist database files across container restarts.
+      - catalog-db-data:/var/lib/postgresql/data
+      # Schema + seed data — executed only on first initialisation (empty volume).
+      - ./infrastructure/postgres/catalog/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      # pg_isready exits 0 when PostgreSQL is accepting connections.
+      # $$ escapes the dollar sign so Compose does not interpolate it;
+      # the shell inside the container reads POSTGRES_USER from its own env.
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - backend
+
+  # ---------------------------------------------------------------------------
+  # catalog — Catalog microservice (Fastify / Node.js 20)
+  # Starts only after catalog-db passes its healthcheck (condition: service_healthy).
+  # ---------------------------------------------------------------------------
+  catalog:
+    build: ./services/catalog
+    container_name: catalog
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: "3001"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # hostname is `catalog-db` (Docker internal DNS), not localhost.
+      DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@catalog-db:5432/${POSTGRES_DB}"
+    depends_on:
+      catalog-db:
+        condition: service_healthy
+    ports:
+      - "3001:3001"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+    networks:
+      - backend
+
+# -----------------------------------------------------------------------------
+# Named volumes — data persists across `docker compose down` (but not `down -v`)
+# -----------------------------------------------------------------------------
+volumes:
+  catalog-db-data:
+
+# -----------------------------------------------------------------------------
+# Networks
+# -----------------------------------------------------------------------------
+networks:
+  backend:
+    driver: bridge
