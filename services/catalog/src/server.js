@@ -12,6 +12,11 @@ import { buildLoggerConfig } from './plugins/logger.js';
 import databasePlugin from './plugins/database.js';
 import metricsPlugin from './plugins/metrics.js';
 import healthRoutes from './routes/health.js';
+import productRoutes from './routes/products.js';
+import categoryRoutes from './routes/categories.js';
+import adminRoutes from './routes/admin.js';
+import internalRoutes from './routes/internal.js';
+import { AppError, toProblem } from './errors.js';
 
 /**
  * Assembles and returns a configured Fastify instance.
@@ -24,6 +29,24 @@ export async function buildServer() {
     logger: buildLoggerConfig(),
   });
 
+  // RFC 7807 error handler — must be registered before plugins/routes so it
+  // applies to all scopes. Handles AppError, Fastify schema validation errors,
+  // and unexpected errors uniformly.
+  server.setErrorHandler((err, request, reply) => {
+    const cid = request.headers['x-correlation-id'] ?? null;
+
+    if (err.validation) {
+      return reply.status(400).send(toProblem(400, 'VALIDATION_ERROR', err.message, cid));
+    }
+
+    if (err instanceof AppError) {
+      return reply.status(err.statusCode).send(toProblem(err.statusCode, err.code, err.detail, cid));
+    }
+
+    request.log.error({ err }, 'Unhandled error');
+    return reply.status(500).send(toProblem(500, 'INTERNAL_ERROR', 'Unexpected server error', cid));
+  });
+
   // Database pool — registered first so routes can reference fastify.pg.
   await server.register(databasePlugin, config.database);
 
@@ -32,6 +55,12 @@ export async function buildServer() {
 
   // Health, readiness, and metrics routes.
   await server.register(healthRoutes);
+
+  // Business routes
+  await server.register(productRoutes,  { prefix: '/api/v1/catalog' });
+  await server.register(categoryRoutes, { prefix: '/api/v1/catalog' });
+  await server.register(adminRoutes,    { prefix: '/api/v1/catalog' });
+  await server.register(internalRoutes, { prefix: '/internal/catalog' });
 
   return server;
 }
