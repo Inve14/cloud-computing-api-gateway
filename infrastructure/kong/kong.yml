@@ -1,0 +1,187 @@
+_format_version: "3.0"
+
+# =============================================================================
+# Kong API Gateway — DB-less declarative configuration
+# =============================================================================
+# Kong runs in DB-less mode (KONG_DATABASE=off). This file is the single
+# source of truth for all routing, plugin, and policy configuration.
+#
+# Reload at runtime (no restart needed):
+#   curl -X POST http://localhost:8001/config -F config=@infrastructure/kong/kong.yml
+#
+# Validate locally without a running Kong:
+#   docker run --rm -v $(pwd)/infrastructure/kong:/kong/declarative \
+#     kong:3.7-alpine kong config parse /kong/declarative/kong.yml
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Global plugins — applied to every proxied request across all services.
+# -----------------------------------------------------------------------------
+plugins:
+  # Generates X-Correlation-ID if the client did not supply one, then
+  # propagates it upstream. Every microservice includes this header in
+  # structured log entries and RFC 7807 error responses.
+  - name: correlation-id
+    config:
+      header_name: X-Correlation-ID
+      generator: uuid
+      echo_downstream: true
+
+  # CORS — permissive for local dev; tighten origins in production.
+  - name: cors
+    config:
+      origins:
+        - "*"
+      methods:
+        - GET
+        - POST
+        - PUT
+        - PATCH
+        - DELETE
+        - OPTIONS
+        - HEAD
+      headers:
+        - Authorization
+        - Content-Type
+        - Accept
+        - X-Correlation-ID
+      exposed_headers:
+        - X-Correlation-ID
+      credentials: false
+      max_age: 3600
+      preflight_continue: false
+
+# =============================================================================
+# Services
+# =============================================================================
+services:
+
+  # ---------------------------------------------------------------------------
+  # catalog-service
+  # Serves product catalog, categories, and stock queries.
+  # ---------------------------------------------------------------------------
+  - name: catalog-service
+    url: http://catalog:3001
+    # Upstream connect/send/read timeouts (ms). 3 s aligns with the retry
+    # budget described in the architecture docs.
+    connect_timeout: 3000
+    write_timeout: 3000
+    read_timeout: 3000
+    plugins:
+      - name: rate-limiting
+        config:
+          minute: 100
+          policy: local
+          limit_by: ip
+          hide_client_headers: false
+    routes:
+      - name: catalog-routes
+        paths:
+          - /api/v1/catalog
+        strip_path: false
+
+  # ---------------------------------------------------------------------------
+  # users-service
+  # Handles registration, authentication, profiles, and addresses.
+  # Auth endpoints carry a tighter rate limit to slow brute-force attempts.
+  # ---------------------------------------------------------------------------
+  - name: users-service
+    url: http://users:3002
+    connect_timeout: 3000
+    write_timeout: 3000
+    read_timeout: 3000
+    plugins:
+      - name: rate-limiting
+        config:
+          minute: 100
+          policy: local
+          limit_by: ip
+          hide_client_headers: false
+    routes:
+      # -- Restrictive routes (must be listed before the catch-all so that
+      #    Kong's longest-prefix rule picks them up first) --
+
+      - name: users-auth-login
+        paths:
+          - /api/v1/users/auth/login
+        strip_path: false
+        plugins:
+          # Overrides the service-level 100/min: this route is also counted
+          # against the service counter, but the 10/min limit here is hit
+          # first, making it the effective cap for login attempts.
+          - name: rate-limiting
+            config:
+              minute: 10
+              policy: local
+              limit_by: ip
+              hide_client_headers: false
+
+      - name: users-auth-register
+        paths:
+          - /api/v1/users/auth/register
+        strip_path: false
+        plugins:
+          - name: rate-limiting
+            config:
+              minute: 10
+              policy: local
+              limit_by: ip
+              hide_client_headers: false
+
+      # -- Catch-all for every other /api/v1/users/* path --
+      - name: users-routes
+        paths:
+          - /api/v1/users
+        strip_path: false
+
+  # ---------------------------------------------------------------------------
+  # orders-service
+  # Owns both the cart flow (/api/v1/cart/*) and order history (/api/v1/orders/*).
+  # Both path groups are served by the same Fastify process on port 3003.
+  # ---------------------------------------------------------------------------
+  - name: orders-service
+    url: http://orders:3003
+    connect_timeout: 3000
+    write_timeout: 3000
+    read_timeout: 3000
+    plugins:
+      - name: rate-limiting
+        config:
+          minute: 100
+          policy: local
+          limit_by: ip
+          hide_client_headers: false
+    routes:
+      - name: cart-routes
+        paths:
+          - /api/v1/cart
+        strip_path: false
+
+      - name: orders-routes
+        paths:
+          - /api/v1/orders
+        strip_path: false
+
+  # ---------------------------------------------------------------------------
+  # payments-service
+  # Public endpoints: payment status lookup, history, and admin refunds.
+  # Payment processing is internal only (/internal/payments/process) and is
+  # intentionally NOT exposed here.
+  # ---------------------------------------------------------------------------
+  - name: payments-service
+    url: http://payments:3004
+    connect_timeout: 3000
+    write_timeout: 3000
+    read_timeout: 3000
+    plugins:
+      - name: rate-limiting
+        config:
+          minute: 100
+          policy: local
+          limit_by: ip
+          hide_client_headers: false
+    routes:
+      - name: payments-routes
+        paths:
+          - /api/v1/payments
+        strip_path: false

@@ -218,6 +218,47 @@ services:
     networks:
       - backend
 
+  # ---------------------------------------------------------------------------
+  # kong — API Gateway (DB-less mode, declarative configuration)
+  # Single entry point for all external traffic. Routes requests to the
+  # appropriate microservice and enforces rate limiting and CORS globally.
+  #
+  # Port 8001 (Admin API) is exposed here for local development only.
+  # It MUST NOT be opened in the AWS Security Group in production.
+  # ---------------------------------------------------------------------------
+  kong:
+    image: kong:3.9.1
+    container_name: kong
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /usr/local/kong/declarative/kong.yml
+      KONG_PROXY_LISTEN: "0.0.0.0:8000"
+      KONG_ADMIN_LISTEN: "0.0.0.0:8001"
+      KONG_LOG_LEVEL: notice
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+    volumes:
+      - ./infrastructure/kong/kong.yml:/usr/local/kong/declarative/kong.yml:ro
+    ports:
+      - "8000:8000"
+      - "8001:8001"
+    depends_on:
+      - catalog
+      - users
+      - orders
+      - payments
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+    networks:
+      - backend
+
 # -----------------------------------------------------------------------------
 # Named volumes — data persists across `docker compose down` (but not `down -v`)
 # -----------------------------------------------------------------------------
