@@ -11,6 +11,7 @@ import { config } from './config/index.js';
 import { buildLoggerConfig } from './plugins/logger.js';
 import databasePlugin from './plugins/database.js';
 import metricsPlugin from './plugins/metrics.js';
+import jwtPlugin from './plugins/jwt.js';
 import healthRoutes from './routes/health.js';
 import productRoutes from './routes/products.js';
 import categoryRoutes from './routes/categories.js';
@@ -49,6 +50,9 @@ export async function buildServer() {
 
   // Database pool — registered first so routes can reference fastify.pg.
   await server.register(databasePlugin, config.database);
+
+  // RS256 JWT — must be registered before any route that calls jwtVerify.
+  await server.register(jwtPlugin);
 
   // Prometheus metrics — registers onResponse hook and exposes the registry.
   await server.register(metricsPlugin);

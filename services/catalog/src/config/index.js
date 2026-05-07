@@ -75,4 +75,10 @@ export const config = {
   logging: {
     level: getOptional('LOG_LEVEL', 'info'),
   },
+
+  jwt: {
+    // Public key used to verify RS256 tokens issued by the Users service.
+    // Leave empty to trigger ephemeral-key generation (tests / local dev only).
+    publicKeyPath: getOptional('JWT_PUBLIC_KEY_PATH', ''),
+  },
 };

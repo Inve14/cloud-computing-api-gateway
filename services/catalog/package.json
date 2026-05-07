@@ -13,6 +13,7 @@
     "lint": "echo 'TODO: configure eslint'"
   },
   "dependencies": {
+    "@fastify/jwt": "8.0.1",
     "dotenv": "16.4.5",
     "fastify": "4.28.1",
     "fastify-plugin": "4.5.1",
