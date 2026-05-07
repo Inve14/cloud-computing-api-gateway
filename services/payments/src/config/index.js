@@ -51,4 +51,8 @@ export const config = {
   logging: {
     level: getOptional('LOG_LEVEL', 'info'),
   },
+
+  jwt: {
+    publicKeyPath: getOptional('JWT_PUBLIC_KEY_PATH', ''),
+  },
 };

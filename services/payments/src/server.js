@@ -5,14 +5,36 @@ import { config } from './config/index.js';
 import { buildLoggerConfig } from './plugins/logger.js';
 import databasePlugin from './plugins/database.js';
 import metricsPlugin from './plugins/metrics.js';
+import jwtPlugin from './plugins/jwt.js';
 import healthRoutes from './routes/health.js';
+import { AppError, toProblem } from './errors.js';
 
 export async function buildServer() {
   const server = Fastify({
     logger: buildLoggerConfig(),
   });
 
+  // RFC 7807 error handler.
+  server.setErrorHandler((err, request, reply) => {
+    const cid = request.headers['x-correlation-id'] ?? null;
+
+    if (err.validation) {
+      return reply.status(400).send(toProblem(400, 'VALIDATION_ERROR', err.message, cid));
+    }
+
+    if (err instanceof AppError) {
+      return reply.status(err.statusCode).send(toProblem(err.statusCode, err.code, err.detail, cid));
+    }
+
+    request.log.error({ err }, 'Unhandled error');
+    return reply.status(500).send(toProblem(500, 'INTERNAL_ERROR', 'Unexpected server error', cid));
+  });
+
   await server.register(databasePlugin, config.database);
+
+  // RS256 JWT — must be registered before any route that calls jwtVerify.
+  await server.register(jwtPlugin);
+
   await server.register(metricsPlugin);
   await server.register(healthRoutes);
 
