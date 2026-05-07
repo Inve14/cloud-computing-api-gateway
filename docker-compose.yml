@@ -68,11 +68,164 @@ services:
     networks:
       - backend
 
+  # ---------------------------------------------------------------------------
+  # users-db — PostgreSQL 16 for the Users service
+  # ---------------------------------------------------------------------------
+  users-db:
+    image: postgres:16.3-alpine
+    container_name: users-db
+    environment:
+      POSTGRES_USER: ${USERS_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${USERS_POSTGRES_PASSWORD}
+      POSTGRES_DB: ${USERS_POSTGRES_DB}
+    volumes:
+      - users-db-data:/var/lib/postgresql/data
+      - ./infrastructure/postgres/users/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - backend
+
+  # ---------------------------------------------------------------------------
+  # users — Users microservice (Fastify / Node.js 20)
+  # Starts only after users-db passes its healthcheck (condition: service_healthy).
+  # ---------------------------------------------------------------------------
+  users:
+    build: ./services/users
+    container_name: users
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: "3002"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DATABASE_URL: "postgresql://${USERS_POSTGRES_USER}:${USERS_POSTGRES_PASSWORD}@users-db:5432/${USERS_POSTGRES_DB}"
+    depends_on:
+      users-db:
+        condition: service_healthy
+    ports:
+      - "3002:3002"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3002/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+    networks:
+      - backend
+
+  # ---------------------------------------------------------------------------
+  # orders-db — PostgreSQL 16 for the Orders service
+  # ---------------------------------------------------------------------------
+  orders-db:
+    image: postgres:16.3-alpine
+    container_name: orders-db
+    environment:
+      POSTGRES_USER: ${ORDERS_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${ORDERS_POSTGRES_PASSWORD}
+      POSTGRES_DB: ${ORDERS_POSTGRES_DB}
+    volumes:
+      - orders-db-data:/var/lib/postgresql/data
+      - ./infrastructure/postgres/orders/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - backend
+
+  # ---------------------------------------------------------------------------
+  # orders — Orders microservice (Fastify / Node.js 20)
+  # Starts only after orders-db passes its healthcheck (condition: service_healthy).
+  # ---------------------------------------------------------------------------
+  orders:
+    build: ./services/orders
+    container_name: orders
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: "3003"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DATABASE_URL: "postgresql://${ORDERS_POSTGRES_USER}:${ORDERS_POSTGRES_PASSWORD}@orders-db:5432/${ORDERS_POSTGRES_DB}"
+    depends_on:
+      orders-db:
+        condition: service_healthy
+    ports:
+      - "3003:3003"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3003/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+    networks:
+      - backend
+
+  # ---------------------------------------------------------------------------
+  # payments-db — PostgreSQL 16 for the Payments service
+  # ---------------------------------------------------------------------------
+  payments-db:
+    image: postgres:16.3-alpine
+    container_name: payments-db
+    environment:
+      POSTGRES_USER: ${PAYMENTS_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${PAYMENTS_POSTGRES_PASSWORD}
+      POSTGRES_DB: ${PAYMENTS_POSTGRES_DB}
+    volumes:
+      - payments-db-data:/var/lib/postgresql/data
+      - ./infrastructure/postgres/payments/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - backend
+
+  # ---------------------------------------------------------------------------
+  # payments — Payments microservice (Fastify / Node.js 20)
+  # Starts only after payments-db passes its healthcheck (condition: service_healthy).
+  # ---------------------------------------------------------------------------
+  payments:
+    build: ./services/payments
+    container_name: payments
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: "3004"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DATABASE_URL: "postgresql://${PAYMENTS_POSTGRES_USER}:${PAYMENTS_POSTGRES_PASSWORD}@payments-db:5432/${PAYMENTS_POSTGRES_DB}"
+    depends_on:
+      payments-db:
+        condition: service_healthy
+    ports:
+      - "3004:3004"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3004/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+    networks:
+      - backend
+
 # -----------------------------------------------------------------------------
 # Named volumes — data persists across `docker compose down` (but not `down -v`)
 # -----------------------------------------------------------------------------
 volumes:
   catalog-db-data:
+  users-db-data:
+  orders-db-data:
+  payments-db-data:
 
 # -----------------------------------------------------------------------------
 # Networks

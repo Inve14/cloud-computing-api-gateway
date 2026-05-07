@@ -57,7 +57,7 @@ Stock tracking, separated from `products` to allow concurrent stock updates with
 | `last_restocked_at` | TIMESTAMPTZ | NULLABLE | |
 | `updated_at` | TIMESTAMPTZ | NOT NULL, default NOW() | |
 
-**Concurrency note**: when adding to cart, `quantity_available` decreases and `quantity_reserved` increases, atomically. When the order is paid, `quantity_reserved` decreases. When the cart times out, `quantity_reserved` decreases and `quantity_available` increases.
+**Concurrency note**: stock changes happen at **checkout time**, not at cart-add time. When an order is checked out, `quantity_available` decreases and `quantity_reserved` increases atomically (per item). When the payment succeeds, `quantity_reserved` decreases (the items are consumed). When the payment fails or the order is cancelled, `quantity_reserved` decreases and `quantity_available` increases (rollback). The cart endpoints in the orders service do **not** touch this table — they only read it to inform the user about availability.
 
 ---
 
@@ -237,7 +237,7 @@ catalog.products.id  ──────►  orders.order_items.product_id
 
 Since cross-service FKs are not enforced, we maintain consistency through:
 
-1. **Validation at API level**: when creating an order, the `orders` service calls the `catalog` service to verify product existence and stock availability.
+1. **Validation at API level**: at checkout time (`POST /api/v1/cart/checkout`), the `orders` service calls the `catalog` service to verify product existence, fetch up-to-date prices, and reserve stock. Cart-add operations call catalog only for existence/active checks, not for stock reservation.
 2. **Compensating transactions**: if a payment fails after stock has been reserved, the `orders` service publishes a "cancel reservation" event back to `catalog`.
 3. **Snapshotting**: critical data (product name, price, shipping address) is snapshotted at the time of the operation, so later changes in the source service don't affect historical records.
 

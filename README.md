@@ -209,7 +209,7 @@ Three live demos on the cloud-deployed VM, each targeting one of the non-functio
 - **Bertoletti Matteo** — matr. 65865A
 - **Invernizzi Carlo** — matr. 65885A
 
-University of [your university name], academic year 2025/2026
+University of Milano, academic year 2025/2026
 
 ---
 
