@@ -1,0 +1,3 @@
+# RSA keys are secrets — never commit to version control.
+# In production, inject via Docker secret or secrets manager.
+*.pem

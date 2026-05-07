@@ -75,4 +75,13 @@ export const config = {
   logging: {
     level: getOptional('LOG_LEVEL', 'info'),
   },
+
+  jwt: {
+    // Paths are optional: when absent, the JWT plugin generates ephemeral keys
+    // (test / local dev without mounted volumes). Always set in production.
+    privateKeyPath: getOptional('JWT_PRIVATE_KEY_PATH', ''),
+    publicKeyPath:  getOptional('JWT_PUBLIC_KEY_PATH',  ''),
+    accessTtlSec:   parseInt(getOptional('JWT_ACCESS_TTL_SEC',    '900'), 10),
+    refreshTtlDays: parseInt(getOptional('JWT_REFRESH_TTL_DAYS',  '7'),   10),
+  },
 };

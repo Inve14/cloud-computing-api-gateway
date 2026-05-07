@@ -103,6 +103,12 @@ services:
       PORT: "3002"
       LOG_LEVEL: ${LOG_LEVEL:-info}
       DATABASE_URL: "postgresql://${USERS_POSTGRES_USER}:${USERS_POSTGRES_PASSWORD}@users-db:5432/${USERS_POSTGRES_DB}"
+      JWT_PRIVATE_KEY_PATH: /etc/jwt-keys/private.pem
+      JWT_PUBLIC_KEY_PATH: /etc/jwt-keys/public.pem
+      JWT_ACCESS_TTL_SEC: "900"
+      JWT_REFRESH_TTL_DAYS: "7"
+    volumes:
+      - ./infrastructure/jwt-keys:/etc/jwt-keys:ro
     depends_on:
       users-db:
         condition: service_healthy

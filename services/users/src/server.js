@@ -11,7 +11,11 @@ import { config } from './config/index.js';
 import { buildLoggerConfig } from './plugins/logger.js';
 import databasePlugin from './plugins/database.js';
 import metricsPlugin from './plugins/metrics.js';
+import jwtPlugin from './plugins/jwt.js';
 import healthRoutes from './routes/health.js';
+import authRoutes from './routes/auth.js';
+import meRoutes from './routes/me.js';
+import { AppError, toProblem } from './errors.js';
 
 /**
  * Assembles and returns a configured Fastify instance.
@@ -24,14 +28,37 @@ export async function buildServer() {
     logger: buildLoggerConfig(),
   });
 
+  // RFC 7807 error handler.
+  server.setErrorHandler((err, request, reply) => {
+    const cid = request.headers['x-correlation-id'] ?? null;
+
+    if (err.validation) {
+      return reply.status(400).send(toProblem(400, 'VALIDATION_ERROR', err.message, cid));
+    }
+
+    if (err instanceof AppError) {
+      return reply.status(err.statusCode).send(toProblem(err.statusCode, err.code, err.detail, cid));
+    }
+
+    request.log.error({ err }, 'Unhandled error');
+    return reply.status(500).send(toProblem(500, 'INTERNAL_ERROR', 'Unexpected server error', cid));
+  });
+
   // Database pool — registered first so routes can reference fastify.pg.
   await server.register(databasePlugin, config.database);
+
+  // RS256 JWT — must be registered before any route that calls jwtVerify/sign.
+  await server.register(jwtPlugin);
 
   // Prometheus metrics — registers onResponse hook and exposes the registry.
   await server.register(metricsPlugin);
 
   // Health, readiness, and metrics routes.
   await server.register(healthRoutes);
+
+  // Business routes
+  await server.register(authRoutes, { prefix: '/api/v1/users' });
+  await server.register(meRoutes,   { prefix: '/api/v1/users' });
 
   return server;
 }
