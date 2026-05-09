@@ -43,10 +43,13 @@ services:
   # ---------------------------------------------------------------------------
   # catalog — Catalog microservice (Fastify / Node.js 20)
   # Starts only after catalog-db passes its healthcheck (condition: service_healthy).
+  #
+  # 3 replicas: container_name and host port mapping are intentionally absent —
+  # both are incompatible with scaling. Access via Kong on :8000 only.
+  # Docker DNS resolves "catalog" to all replicas; Kong round-robins across them.
   # ---------------------------------------------------------------------------
   catalog:
     build: ./services/catalog
-    container_name: catalog
     environment:
       NODE_ENV: ${NODE_ENV:-development}
       PORT: "3001"
@@ -59,10 +62,12 @@ services:
     depends_on:
       catalog-db:
         condition: service_healthy
-    ports:
-      - "3001:3001"
+    expose:
+      - "3001"
+    deploy:
+      replicas: 3
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/health || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3001/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -97,10 +102,12 @@ services:
   # ---------------------------------------------------------------------------
   # users — Users microservice (Fastify / Node.js 20)
   # Starts only after users-db passes its healthcheck (condition: service_healthy).
+  #
+  # 2 replicas: container_name and host port mapping are intentionally absent.
+  # Access via Kong on :8000 only.
   # ---------------------------------------------------------------------------
   users:
     build: ./services/users
-    container_name: users
     environment:
       NODE_ENV: ${NODE_ENV:-production}
       PORT: "3002"
@@ -115,10 +122,12 @@ services:
     depends_on:
       users-db:
         condition: service_healthy
-    ports:
-      - "3002:3002"
+    expose:
+      - "3002"
+    deploy:
+      replicas: 2
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3002/health || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3002/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -153,10 +162,12 @@ services:
   # ---------------------------------------------------------------------------
   # orders — Orders microservice (Fastify / Node.js 20)
   # Starts only after orders-db passes its healthcheck (condition: service_healthy).
+  #
+  # 2 replicas: container_name and host port mapping are intentionally absent.
+  # Access via Kong on :8000 only.
   # ---------------------------------------------------------------------------
   orders:
     build: ./services/orders
-    container_name: orders
     environment:
       NODE_ENV: ${NODE_ENV:-production}
       PORT: "3003"
@@ -168,10 +179,12 @@ services:
     depends_on:
       orders-db:
         condition: service_healthy
-    ports:
-      - "3003:3003"
+    expose:
+      - "3003"
+    deploy:
+      replicas: 2
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3003/health || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3003/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -206,10 +219,12 @@ services:
   # ---------------------------------------------------------------------------
   # payments — Payments microservice (Fastify / Node.js 20)
   # Starts only after payments-db passes its healthcheck (condition: service_healthy).
+  #
+  # 2 replicas: container_name and host port mapping are intentionally absent.
+  # Access via Kong on :8000 only.
   # ---------------------------------------------------------------------------
   payments:
     build: ./services/payments
-    container_name: payments
     environment:
       NODE_ENV: ${NODE_ENV:-production}
       PORT: "3004"
@@ -221,10 +236,12 @@ services:
     depends_on:
       payments-db:
         condition: service_healthy
-    ports:
-      - "3004:3004"
+    expose:
+      - "3004"
+    deploy:
+      replicas: 2
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3004/health || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3004/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3
