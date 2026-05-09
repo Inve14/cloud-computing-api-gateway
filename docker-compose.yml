@@ -256,6 +256,7 @@ services:
       KONG_ADMIN_ERROR_LOG: /dev/stderr
     volumes:
       - ./infrastructure/kong/kong.yml:/usr/local/kong/declarative/kong.yml:ro
+      - ./infrastructure/jwt-keys:/etc/jwt-keys:ro
     ports:
       - "8000:8000"
       - "8001:8001"

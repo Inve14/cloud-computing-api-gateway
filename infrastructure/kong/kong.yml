@@ -52,6 +52,32 @@ plugins:
       preflight_continue: false
 
 # =============================================================================
+# JWT consumers
+# =============================================================================
+# A single consumer represents "any valid token issued by our users service".
+# Kong resolves the jwt_secret via the `iss` claim in the token payload —
+# it must equal the `key` field below. The users service sets iss: "users-service".
+# =============================================================================
+consumers:
+  - username: default-jwt-consumer
+    jwt_secrets:
+      - key: "users-service"
+        algorithm: RS256
+        # Inline public key (mirrors infrastructure/jwt-keys/public.pem).
+        # Kong uses this to verify RS256 signatures; the private key never
+        # leaves the users service.
+        rsa_public_key: |
+          -----BEGIN PUBLIC KEY-----
+          MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAjFMr4Cs8qTkWponKFB+p
+          g10gq3L70FnYV9MGV4gzr+N1i0YuRyQX5BcSQY/cEs/4Lxz4eUcG2EyDBSnofknH
+          0Q50kDLLyXlhObsDb4GvUCbyzmbsaaVoVpXpm3hAcb6Jr7Wk+Ccpvhw0UpsV/rwf
+          ez2j+7nPKZf762x63UVV4VyaVWpjzvbwJbLysunRHniMytJBq1zcEJeYHSBhFuTi
+          NKgpDYZ7he5hR/arwilfpqhBOiOOvqOxGK3oCxW31pAn1O4tU1RggbXGoUyC/FGj
+          oxl8SKrLEnV+EEOqQ8gBxVE1sE75c6Au5jRqqx5VcqzCSawy9ueu0PBhvjW/DfO2
+          bwIDAQAB
+          -----END PUBLIC KEY-----
+
+# =============================================================================
 # Services
 # =============================================================================
 services:
@@ -59,11 +85,12 @@ services:
   # ---------------------------------------------------------------------------
   # catalog-service
   # Serves product catalog, categories, and stock queries.
+  # Read endpoints are public. Write operations (POST/PUT/PATCH/DELETE) on
+  # /products and /categories require a valid JWT (admin only in practice,
+  # enforced by the catalog service itself after Kong's signature check).
   # ---------------------------------------------------------------------------
   - name: catalog-service
     url: http://catalog:3001
-    # Upstream connect/send/read timeouts (ms). 3 s aligns with the retry
-    # budget described in the architecture docs.
     connect_timeout: 3000
     write_timeout: 3000
     read_timeout: 3000
@@ -75,6 +102,46 @@ services:
           limit_by: ip
           hide_client_headers: false
     routes:
+      # -- Protected: write operations on products (JWT required) --
+      # This route is more specific than the public catch-all below, so Kong's
+      # longest-prefix rule will select it for POST/PUT/PATCH/DELETE on this path.
+      - name: catalog-products-write
+        paths:
+          - /api/v1/catalog/products
+        methods:
+          - POST
+          - PUT
+          - PATCH
+          - DELETE
+        strip_path: false
+        plugins:
+          - name: jwt
+            config:
+              key_claim_name: iss
+              claims_to_verify:
+                - exp
+              # Allow OPTIONS (CORS preflight) without a token.
+              run_on_preflight: false
+
+      # -- Protected: write operations on categories (JWT required) --
+      - name: catalog-categories-write
+        paths:
+          - /api/v1/catalog/categories
+        methods:
+          - POST
+          - PUT
+          - PATCH
+          - DELETE
+        strip_path: false
+        plugins:
+          - name: jwt
+            config:
+              key_claim_name: iss
+              claims_to_verify:
+                - exp
+              run_on_preflight: false
+
+      # -- Public catch-all: read endpoints (no JWT) --
       - name: catalog-routes
         paths:
           - /api/v1/catalog
@@ -83,7 +150,13 @@ services:
   # ---------------------------------------------------------------------------
   # users-service
   # Handles registration, authentication, profiles, and addresses.
-  # Auth endpoints carry a tighter rate limit to slow brute-force attempts.
+  #
+  # Route ordering matters here. Kong uses longest-prefix matching, so more
+  # specific paths must appear before the catch-all to take priority:
+  #   /api/v1/users/auth/login    → public, tight rate limit
+  #   /api/v1/users/auth/register → public, tight rate limit
+  #   /api/v1/users/auth          → public catch-all (refresh, logout, …)
+  #   /api/v1/users               → protected catch-all (JWT required)
   # ---------------------------------------------------------------------------
   - name: users-service
     url: http://users:3002
@@ -98,7 +171,7 @@ services:
           limit_by: ip
           hide_client_headers: false
     routes:
-      # -- Restrictive routes (must be listed before the catch-all so that
+      # -- Public auth routes (must be listed before the catch-all so that
       #    Kong's longest-prefix rule picks them up first) --
 
       - name: users-auth-login
@@ -128,16 +201,35 @@ services:
               limit_by: ip
               hide_client_headers: false
 
-      # -- Catch-all for every other /api/v1/users/* path --
+      # -- Public auth catch-all: covers /auth/refresh, /auth/logout, etc. --
+      # Refresh needs no access token (uses a refresh token in the body).
+      # Logout is idempotent even with an expired access token, so we keep
+      # the entire /auth/* namespace public at the gateway layer. The service
+      # enforces its own auth logic internally.
+      - name: users-auth-routes
+        paths:
+          - /api/v1/users/auth
+        strip_path: false
+
+      # -- Protected catch-all: /api/v1/users/* (JWT required) --
+      # Covers /me, /addresses, admin profile endpoints, etc.
       - name: users-routes
         paths:
           - /api/v1/users
         strip_path: false
+        plugins:
+          - name: jwt
+            config:
+              key_claim_name: iss
+              claims_to_verify:
+                - exp
+              run_on_preflight: false
 
   # ---------------------------------------------------------------------------
   # orders-service
   # Owns both the cart flow (/api/v1/cart/*) and order history (/api/v1/orders/*).
   # Both path groups are served by the same Fastify process on port 3003.
+  # All cart and order operations require authentication.
   # ---------------------------------------------------------------------------
   - name: orders-service
     url: http://orders:3003
@@ -156,17 +248,31 @@ services:
         paths:
           - /api/v1/cart
         strip_path: false
+        plugins:
+          - name: jwt
+            config:
+              key_claim_name: iss
+              claims_to_verify:
+                - exp
+              run_on_preflight: false
 
       - name: orders-routes
         paths:
           - /api/v1/orders
         strip_path: false
+        plugins:
+          - name: jwt
+            config:
+              key_claim_name: iss
+              claims_to_verify:
+                - exp
+              run_on_preflight: false
 
   # ---------------------------------------------------------------------------
   # payments-service
-  # Public endpoints: payment status lookup, history, and admin refunds.
-  # Payment processing is internal only (/internal/payments/process) and is
-  # intentionally NOT exposed here.
+  # Payment status, history, and admin refunds require authentication.
+  # The internal processing endpoint (/internal/payments/process) is
+  # intentionally NOT exposed here — callable only on the Docker network.
   # ---------------------------------------------------------------------------
   - name: payments-service
     url: http://payments:3004
@@ -185,3 +291,10 @@ services:
         paths:
           - /api/v1/payments
         strip_path: false
+        plugins:
+          - name: jwt
+            config:
+              key_claim_name: iss
+              claims_to_verify:
+                - exp
+              run_on_preflight: false

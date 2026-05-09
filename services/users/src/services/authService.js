@@ -52,7 +52,7 @@ export async function login(pool, jwtSign, { email, password }) {
     expires_at: expiresAt,
   });
 
-  const access_token = jwtSign({ sub: user.id, email: user.email, role: user.role });
+  const access_token = jwtSign({ sub: user.id, email: user.email, role: user.role, iss: 'users-service' });
 
   return {
     access_token,
@@ -77,7 +77,7 @@ export async function refresh(pool, jwtSign, { refresh_token }) {
   const user = await userRepo.findById(pool, tokenRow.user_id);
   if (!user) throw new AppError(401, 'TOKEN_INVALID', 'User no longer exists');
 
-  const access_token = jwtSign({ sub: user.id, email: user.email, role: user.role });
+  const access_token = jwtSign({ sub: user.id, email: user.email, role: user.role, iss: 'users-service' });
 
   // TODO: emit to audit log stream (event: token_refreshed)
   return {
