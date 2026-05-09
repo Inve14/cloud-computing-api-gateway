@@ -5,6 +5,8 @@ const SORT_MAP = {
 };
 
 // ---------- Read (public) ----------
+// TODO: route read-only queries (listProducts, getProduct, listByIds) through
+//       fastify.pgReplica once replica routing is validated end-to-end.
 
 export async function listProducts(pool, { page, limit, category, q, sort }) {
   const offset = (page - 1) * limit;

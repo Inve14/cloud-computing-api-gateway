@@ -44,13 +44,7 @@ async function healthRoutes(fastify) {
 
   // ------------------------------------------------------------------
   // GET /ready — readiness probe
-  // Checks that the database is reachable. Returns 503 if not, so that
-  // the load balancer / Consul stops routing traffic here until the
-  // service is fully initialised.
-  //
-  // Both database_master and database_replica are reported. In this
-  // scaffolding both checks use the same pool (a single master). True
-  // replica routing will be added when the replica container is set up.
+  // Checks both master and replica. Returns 503 if either is down.
   // ------------------------------------------------------------------
   fastify.get('/ready', async (request, reply) => {
     const checks = {
@@ -58,13 +52,23 @@ async function healthRoutes(fastify) {
       database_replica: 'ok',
     };
 
-    try {
-      await fastify.pg.query('SELECT 1');
-    } catch (err) {
-      fastify.log.warn({ err }, 'Readiness check: database unreachable');
-      checks.database_master = 'error';
-      checks.database_replica = 'error';
+    const [masterResult, replicaResult] = await Promise.allSettled([
+      fastify.pg.query('SELECT 1'),
+      fastify.pgReplica.query('SELECT 1'),
+    ]);
 
+    if (masterResult.status === 'rejected') {
+      fastify.log.warn({ err: masterResult.reason }, 'Readiness check: master unreachable');
+      checks.database_master = 'error';
+    }
+    if (replicaResult.status === 'rejected') {
+      fastify.log.warn({ err: replicaResult.reason }, 'Readiness check: replica unreachable');
+      checks.database_replica = 'error';
+    }
+
+    const allOk = checks.database_master === 'ok' && checks.database_replica === 'ok';
+
+    if (!allOk) {
       return reply.status(503).send({
         status: 'not_ready',
         service: 'catalog',

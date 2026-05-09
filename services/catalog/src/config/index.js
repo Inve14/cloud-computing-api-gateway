@@ -38,17 +38,24 @@ function getOptional(name, defaultValue) {
 }
 
 /**
- * Resolves database connection config from DATABASE_URL (preferred) or
+ * Resolves database connection config from a URL env var (preferred) or
  * individual DB_* variables. Throws if neither is provided.
+ * @param {string} urlVar  — name of the URL env var to check first
  * @returns {object} pg.Pool compatible connection config
  */
-function resolveDatabaseConfig() {
-  const url = process.env.DATABASE_URL;
+function resolveDatabaseConfig(urlVar = 'DATABASE_URL') {
+  const url = process.env[urlVar];
   if (url) {
     return { connectionString: url };
   }
 
-  // Fall back to individual connection parameters
+  if (urlVar !== 'DATABASE_URL') {
+    // Replica URL is optional; fall back to the master URL.
+    const masterUrl = process.env.DATABASE_URL;
+    if (masterUrl) return { connectionString: masterUrl };
+  }
+
+  // Fall back to individual connection parameters (master only).
   const host = getRequired('DB_HOST');
   const port = parseInt(getOptional('DB_PORT', '5432'), 10);
   const database = getRequired('DB_NAME');
@@ -58,18 +65,24 @@ function resolveDatabaseConfig() {
   return { host, port, database, user, password };
 }
 
+const poolDefaults = {
+  max: parseInt(getOptional('DB_POOL_MAX', '10'), 10),
+  idleTimeoutMillis: parseInt(getOptional('DB_IDLE_TIMEOUT_MS', '30000'), 10),
+  connectionTimeoutMillis: parseInt(getOptional('DB_CONNECTION_TIMEOUT_MS', '3000'), 10),
+};
+
 export const config = {
   env: getOptional('NODE_ENV', 'development'),
   port: parseInt(getOptional('PORT', '3001'), 10),
 
   database: {
-    ...resolveDatabaseConfig(),
-    max: parseInt(getOptional('DB_POOL_MAX', '10'), 10),
-    idleTimeoutMillis: parseInt(getOptional('DB_IDLE_TIMEOUT_MS', '30000'), 10),
-    connectionTimeoutMillis: parseInt(
-      getOptional('DB_CONNECTION_TIMEOUT_MS', '3000'),
-      10
-    ),
+    ...resolveDatabaseConfig('DATABASE_URL'),
+    ...poolDefaults,
+  },
+
+  databaseReplica: {
+    ...resolveDatabaseConfig('DATABASE_REPLICA_URL'),
+    ...poolDefaults,
   },
 
   logging: {

@@ -48,8 +48,11 @@ export async function buildServer() {
     return reply.status(500).send(toProblem(500, 'INTERNAL_ERROR', 'Unexpected server error', cid));
   });
 
-  // Database pool — registered first so routes can reference fastify.pg.
-  await server.register(databasePlugin, config.database);
+  // Database pools — master (fastify.pg) and replica (fastify.pgReplica).
+  await server.register(databasePlugin, {
+    master: config.database,
+    replica: config.databaseReplica,
+  });
 
   // RS256 JWT — must be registered before any route that calls jwtVerify.
   await server.register(jwtPlugin);

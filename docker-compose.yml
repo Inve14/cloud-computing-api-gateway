@@ -11,31 +11,73 @@
 services:
 
   # ---------------------------------------------------------------------------
-  # catalog-db — PostgreSQL 16 for the Catalog service
-  # One instance for now (master only). A read-replica will be added in a
-  # later step to demonstrate PostgreSQL streaming replication.
+  # catalog-db-master — PostgreSQL 16 master for the Catalog service.
+  # Streaming replication is enabled; catalog-db-replica subscribes to it.
   # ---------------------------------------------------------------------------
-  catalog-db:
+  catalog-db-master:
     image: postgres:16.3-alpine
-    container_name: catalog-db
+    container_name: catalog-db-master
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_REPLICATION_USER: ${POSTGRES_REPLICATION_USER}
+      POSTGRES_REPLICATION_PASSWORD: ${POSTGRES_REPLICATION_PASSWORD}
     volumes:
-      # Persist database files across container restarts.
-      - catalog-db-data:/var/lib/postgresql/data
-      # Schema + seed data — executed only on first initialisation (empty volume).
-      - ./infrastructure/postgres/catalog/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - catalog-db-master-data:/var/lib/postgresql/data
+      - ./infrastructure/postgres/catalog/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./infrastructure/postgres/catalog/init-master.sh:/docker-entrypoint-initdb.d/02-init-master.sh:ro
+    command: >
+      postgres
+      -c wal_level=replica
+      -c max_wal_senders=4
+      -c hot_standby=on
+      -c hot_standby_feedback=on
     healthcheck:
-      # pg_isready exits 0 when PostgreSQL is accepting connections.
-      # $$ escapes the dollar sign so Compose does not interpolate it;
-      # the shell inside the container reads POSTGRES_USER from its own env.
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
       timeout: 5s
       retries: 5
       start_period: 10s
+    restart: unless-stopped
+    networks:
+      - backend
+
+  # ---------------------------------------------------------------------------
+  # catalog-db-replica — PostgreSQL 16 streaming read-replica for the Catalog.
+  # Bootstrapped via pg_basebackup from the master on first start (-R writes
+  # standby.signal and primary_conninfo automatically).
+  # ---------------------------------------------------------------------------
+  catalog-db-replica:
+    image: postgres:16.3-alpine
+    container_name: catalog-db-replica
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_REPLICATION_USER: ${POSTGRES_REPLICATION_USER}
+      POSTGRES_REPLICATION_PASSWORD: ${POSTGRES_REPLICATION_PASSWORD}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - catalog-db-replica-data:/var/lib/postgresql/data
+    command: |
+      bash -c '
+      if [ ! -s "$$PGDATA/PG_VERSION" ]; then
+        until pg_isready -h catalog-db-master -p 5432; do sleep 2; done
+        PGPASSWORD=$$POSTGRES_REPLICATION_PASSWORD pg_basebackup -h catalog-db-master -p 5432 -U $$POSTGRES_REPLICATION_USER -D $$PGDATA -P -X stream -R
+        chmod 0700 $$PGDATA
+      fi
+      exec docker-entrypoint.sh postgres -c hot_standby=on
+      '
+    depends_on:
+      catalog-db-master:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     restart: unless-stopped
     networks:
       - backend
@@ -54,13 +96,15 @@ services:
       NODE_ENV: ${NODE_ENV:-development}
       PORT: "3001"
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      # hostname is `catalog-db` (Docker internal DNS), not localhost.
-      DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@catalog-db:5432/${POSTGRES_DB}"
+      DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@catalog-db-master:5432/${POSTGRES_DB}"
+      DATABASE_REPLICA_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@catalog-db-replica:5432/${POSTGRES_DB}"
       JWT_PUBLIC_KEY_PATH: /etc/jwt-keys/public.pem
     volumes:
       - ./infrastructure/jwt-keys:/etc/jwt-keys:ro
     depends_on:
-      catalog-db:
+      catalog-db-master:
+        condition: service_healthy
+      catalog-db-replica:
         condition: service_healthy
     expose:
       - "3001"
@@ -296,7 +340,8 @@ services:
 # Named volumes — data persists across `docker compose down` (but not `down -v`)
 # -----------------------------------------------------------------------------
 volumes:
-  catalog-db-data:
+  catalog-db-master-data:
+  catalog-db-replica-data:
   users-db-data:
   orders-db-data:
   payments-db-data:

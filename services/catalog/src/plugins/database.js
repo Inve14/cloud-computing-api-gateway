@@ -1,15 +1,11 @@
-// Fastify plugin: PostgreSQL connection pool via node-postgres (pg).
+// Fastify plugin: PostgreSQL connection pools via node-postgres (pg).
 //
-// Decorates the Fastify instance with `fastify.pg` (a pg.Pool), making the
-// pool available to all route handlers. The pool is closed gracefully when
-// Fastify shuts down.
+// Decorates the Fastify instance with:
+//   fastify.pg         — master pool (all writes + reads until replica routing is added)
+//   fastify.pgReplica  — read-replica pool (available for future read routing)
 //
-// The plugin intentionally does NOT test the connection at startup: pg.Pool
-// opens connections lazily, so registration always succeeds even when the DB
-// is temporarily unreachable. Connectivity is verified on demand via GET /ready.
-//
-// Wrapped with fastify-plugin so the `fastify.pg` decorator escapes plugin
-// encapsulation and is visible across the entire server instance.
+// Both pools open connections lazily; connectivity is verified on GET /ready.
+// Wrapped with fastify-plugin so decorators escape plugin encapsulation.
 
 import fp from 'fastify-plugin';
 import pg from 'pg';
@@ -18,23 +14,23 @@ const { Pool } = pg;
 
 /**
  * @param {import('fastify').FastifyInstance} fastify
- * @param {import('pg').PoolConfig} options  — passed from config.database
+ * @param {{ master: import('pg').PoolConfig, replica: import('pg').PoolConfig }} options
  */
 async function databasePlugin(fastify, options) {
-  const pool = new Pool(options);
+  const master = new Pool(options.master);
+  const replica = new Pool(options.replica);
 
-  // Close all connections when the server shuts down.
   fastify.addHook('onClose', async () => {
-    await pool.end();
-    fastify.log.info('Database pool closed');
+    await Promise.all([master.end(), replica.end()]);
+    fastify.log.info('Database pools closed');
   });
 
-  // Expose the pool to all plugins and routes registered after this one.
-  fastify.decorate('pg', pool);
+  fastify.decorate('pg', master);
+  fastify.decorate('pgReplica', replica);
 
   fastify.log.info(
-    { max: options.max, idleTimeoutMillis: options.idleTimeoutMillis },
-    'Database pool initialised'
+    { max: options.master.max, idleTimeoutMillis: options.master.idleTimeoutMillis },
+    'Database pools initialised (master + replica)'
   );
 }
 
