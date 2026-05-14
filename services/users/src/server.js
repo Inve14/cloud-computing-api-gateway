@@ -15,6 +15,7 @@ import jwtPlugin from './plugins/jwt.js';
 import healthRoutes from './routes/health.js';
 import authRoutes from './routes/auth.js';
 import meRoutes from './routes/me.js';
+import addressRoutes from './routes/addresses.js';
 import { AppError, toProblem } from './errors.js';
 
 /**
@@ -57,8 +58,9 @@ export async function buildServer() {
   await server.register(healthRoutes);
 
   // Business routes
-  await server.register(authRoutes, { prefix: '/api/v1/users' });
-  await server.register(meRoutes,   { prefix: '/api/v1/users' });
+  await server.register(authRoutes,     { prefix: '/api/v1/users' });
+  await server.register(meRoutes,       { prefix: '/api/v1/users' });
+  await server.register(addressRoutes,  { prefix: '/api/v1/users' });
 
   return server;
 }

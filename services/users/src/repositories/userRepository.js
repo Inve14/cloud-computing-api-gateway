@@ -26,3 +26,14 @@ export async function create(pool, { email, password_hash, first_name, last_name
   );
   return rows[0];
 }
+
+export async function updateById(pool, id, fields) {
+  const keys = Object.keys(fields);
+  const values = Object.values(fields);
+  const set = keys.map((k, i) => `${k} = $${i + 1}`).join(', ');
+  const { rows } = await pool.query(
+    `UPDATE users SET ${set} WHERE id = $${keys.length + 1} RETURNING ${PUBLIC_COLS}`,
+    [...values, id]
+  );
+  return rows[0] ?? null;
+}
