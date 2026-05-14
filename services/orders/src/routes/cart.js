@@ -1,5 +1,6 @@
 import { authenticate } from '../middleware/auth.js';
 import * as cartService from '../services/cartService.js';
+import * as orderService from '../services/orderService.js';
 
 const UUID = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
 
@@ -105,6 +106,48 @@ async function cartRoutes(fastify) {
     await cartService.clearCart(fastify.pg, request.user.sub);
     return reply.status(204).send();
   });
+
+  // ------------------------------------------------------------------
+  // POST /api/v1/cart/checkout
+  // ------------------------------------------------------------------
+  fastify.post(
+    '/checkout',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['shipping_address', 'payment'],
+          additionalProperties: false,
+          properties: {
+            shipping_address: {
+              type: 'object',
+              required: ['street', 'city', 'zip_code', 'country'],
+              additionalProperties: false,
+              properties: {
+                street:   { type: 'string', minLength: 1, maxLength: 200 },
+                city:     { type: 'string', minLength: 1, maxLength: 100 },
+                zip_code: { type: 'string', minLength: 1, maxLength: 20 },
+                country:  { type: 'string', minLength: 2, maxLength: 3 },
+              },
+            },
+            payment: {
+              type: 'object',
+              required: ['method'],
+              additionalProperties: false,
+              properties: {
+                method:            { type: 'string', enum: ['credit_card', 'paypal', 'bank_transfer'] },
+                card_number_last4: { type: 'string', minLength: 4, maxLength: 4 },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const result = await orderService.checkout(fastify.pg, request.user.sub, request.body);
+      return reply.status(201).send(result);
+    }
+  );
 }
 
 export default cartRoutes;

@@ -7,6 +7,8 @@ import databasePlugin from './plugins/database.js';
 import metricsPlugin from './plugins/metrics.js';
 import jwtPlugin from './plugins/jwt.js';
 import healthRoutes from './routes/health.js';
+import paymentRoutes from './routes/payments.js';
+import internalPaymentRoutes from './routes/internal.js';
 import { AppError, toProblem } from './errors.js';
 
 export async function buildServer() {
@@ -37,6 +39,8 @@ export async function buildServer() {
 
   await server.register(metricsPlugin);
   await server.register(healthRoutes);
+  await server.register(paymentRoutes, { prefix: '/api/v1/payments' });
+  await server.register(internalPaymentRoutes, { prefix: '/internal/payments' });
 
   return server;
 }
