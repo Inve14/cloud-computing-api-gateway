@@ -7,6 +7,7 @@ import databasePlugin from './plugins/database.js';
 import metricsPlugin from './plugins/metrics.js';
 import jwtPlugin from './plugins/jwt.js';
 import healthRoutes from './routes/health.js';
+import cartRoutes from './routes/cart.js';
 import { AppError, toProblem } from './errors.js';
 
 export async function buildServer() {
@@ -37,6 +38,7 @@ export async function buildServer() {
 
   await server.register(metricsPlugin);
   await server.register(healthRoutes);
+  await server.register(cartRoutes, { prefix: '/api/v1/cart' });
 
   return server;
 }

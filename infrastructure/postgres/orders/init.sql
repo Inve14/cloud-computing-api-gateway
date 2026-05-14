@@ -45,12 +45,14 @@ CREATE OR REPLACE TRIGGER carts_set_updated_at
 -- Adding the same product twice increments quantity (UNIQUE on cart_id, product_id).
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS cart_items (
-  id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-  cart_id    UUID        NOT NULL REFERENCES carts(id) ON DELETE CASCADE,
-  product_id UUID        NOT NULL,
-  quantity   INTEGER     NOT NULL CHECK (quantity > 0),
-  added_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  id                        UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  cart_id                   UUID        NOT NULL REFERENCES carts(id) ON DELETE CASCADE,
+  product_id                UUID        NOT NULL,
+  quantity                  INTEGER     NOT NULL CHECK (quantity > 0),
+  product_name_snapshot     VARCHAR(200) NOT NULL,
+  unit_price_cents_snapshot INTEGER     NOT NULL CHECK (unit_price_cents_snapshot > 0),
+  added_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at                TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Fetch all items of a cart.
