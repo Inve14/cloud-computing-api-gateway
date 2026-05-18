@@ -336,6 +336,52 @@ services:
     networks:
       - backend
 
+  # ---------------------------------------------------------------------------
+  # prometheus — Metrics collection
+  # Scrapes Kong (:8001/metrics) and all 4 microservices (:PORT/metrics).
+  # Data retained for 7 days. Admin UI at http://localhost:9090.
+  # ---------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.51.2
+    container_name: prometheus
+    volumes:
+      - ./infrastructure/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infrastructure/monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=7d'
+    ports:
+      - "9090:9090"
+    networks:
+      - backend
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # grafana — Dashboards and visualisation
+  # Auto-provisions Prometheus datasource and the microservices dashboard.
+  # UI at http://localhost:3000 (admin/admin, anonymous viewer enabled).
+  # ---------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:10.4.2
+    container_name: grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./infrastructure/monitoring/grafana-datasources.yml:/etc/grafana/provisioning/datasources/prometheus.yml:ro
+      - ./infrastructure/monitoring/grafana-dashboards.yml:/etc/grafana/provisioning/dashboards/default.yml:ro
+      - ./infrastructure/monitoring/dashboards:/etc/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - backend
+    restart: unless-stopped
+
 # -----------------------------------------------------------------------------
 # Named volumes — data persists across `docker compose down` (but not `down -v`)
 # -----------------------------------------------------------------------------
@@ -345,6 +391,8 @@ volumes:
   users-db-data:
   orders-db-data:
   payments-db-data:
+  prometheus-data:
+  grafana-data:
 
 # -----------------------------------------------------------------------------
 # Networks

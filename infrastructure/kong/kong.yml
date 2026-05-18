@@ -19,13 +19,21 @@ _format_version: "3.0"
 # -----------------------------------------------------------------------------
 plugins:
   # Generates X-Correlation-ID if the client did not supply one, then
-  # propagates it upstream. Every microservice includes this header in
+  # propagates it upstream (with echo_downstream: true). Every microservice includes this header in
   # structured log entries and RFC 7807 error responses.
   - name: correlation-id
     config:
       header_name: X-Correlation-ID
       generator: uuid
       echo_downstream: true
+
+  # Prometheus — exposes Kong metrics at :8001/metrics for Prometheus scraping.
+  - name: prometheus
+    config:
+      status_code_metrics: true
+      latency_metrics: true
+      upstream_health_metrics: true
+      bandwidth_metrics: false
 
   # CORS — permissive for local dev; tighten origins in production.
   - name: cors
@@ -78,6 +86,82 @@ consumers:
           -----END PUBLIC KEY-----
 
 # =============================================================================
+# Upstreams
+# =============================================================================
+# Each upstream enables passive health checking and round-robin load balancing
+# across all replicas that Docker DNS resolves to the service hostname.
+# Passive health checks require no extra polling: Kong marks a target
+# unhealthy after 3 consecutive failures and re-admits it after 2 successes.
+# Active health checks are disabled (interval defaults to 0) to avoid
+# unnecessary traffic; passive checks are sufficient for our replica count.
+# =============================================================================
+upstreams:
+
+  - name: catalog-upstream
+    algorithm: round-robin
+    healthchecks:
+      passive:
+        unhealthy:
+          http_failures: 3
+          http_statuses: [500, 502, 503, 504]
+          tcp_failures: 3
+          timeouts: 3
+        healthy:
+          successes: 2
+          http_statuses: [200, 201, 204]
+    targets:
+      - target: catalog:3001
+        weight: 100
+
+  - name: users-upstream
+    algorithm: round-robin
+    healthchecks:
+      passive:
+        unhealthy:
+          http_failures: 3
+          http_statuses: [500, 502, 503, 504]
+          tcp_failures: 3
+          timeouts: 3
+        healthy:
+          successes: 2
+          http_statuses: [200, 201, 204]
+    targets:
+      - target: users:3002
+        weight: 100
+
+  - name: orders-upstream
+    algorithm: round-robin
+    healthchecks:
+      passive:
+        unhealthy:
+          http_failures: 3
+          http_statuses: [500, 502, 503, 504]
+          tcp_failures: 3
+          timeouts: 3
+        healthy:
+          successes: 2
+          http_statuses: [200, 201, 204]
+    targets:
+      - target: orders:3003
+        weight: 100
+
+  - name: payments-upstream
+    algorithm: round-robin
+    healthchecks:
+      passive:
+        unhealthy:
+          http_failures: 3
+          http_statuses: [500, 502, 503, 504]
+          tcp_failures: 3
+          timeouts: 3
+        healthy:
+          successes: 2
+          http_statuses: [200, 201, 204]
+    targets:
+      - target: payments:3004
+        weight: 100
+
+# =============================================================================
 # Services
 # =============================================================================
 services:
@@ -90,7 +174,9 @@ services:
   # enforced by the catalog service itself after Kong's signature check).
   # ---------------------------------------------------------------------------
   - name: catalog-service
-    url: http://catalog:3001
+    host: catalog-upstream
+    port: 80
+    protocol: http
     connect_timeout: 3000
     write_timeout: 3000
     read_timeout: 3000
@@ -159,7 +245,9 @@ services:
   #   /api/v1/users               → protected catch-all (JWT required)
   # ---------------------------------------------------------------------------
   - name: users-service
-    url: http://users:3002
+    host: users-upstream
+    port: 80
+    protocol: http
     connect_timeout: 3000
     write_timeout: 3000
     read_timeout: 3000
@@ -232,7 +320,9 @@ services:
   # All cart and order operations require authentication.
   # ---------------------------------------------------------------------------
   - name: orders-service
-    url: http://orders:3003
+    host: orders-upstream
+    port: 80
+    protocol: http
     connect_timeout: 3000
     write_timeout: 3000
     read_timeout: 3000
@@ -275,14 +365,16 @@ services:
   # intentionally NOT exposed here — callable only on the Docker network.
   # ---------------------------------------------------------------------------
   - name: payments-service
-    url: http://payments:3004
+    host: payments-upstream
+    port: 80
+    protocol: http
     connect_timeout: 3000
     write_timeout: 3000
     read_timeout: 3000
     plugins:
       - name: rate-limiting
         config:
-          minute: 100
+          minute: 10
           policy: local
           limit_by: ip
           hide_client_headers: false
