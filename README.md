@@ -1,218 +1,187 @@
-# Cloud Computing Project — API Gateway
+# Cloud Computing API Gateway
 
-A mini e-commerce application built on a **microservices architecture** with an **API Gateway** as the single entry point. Designed to demonstrate four key non-functional properties: **resilience**, **security**, **replication**, and **articulated cloud deployment**.
+Mini e-commerce application built on a microservices architecture with an API Gateway as the single entry point.
 
-University project for the *Cloud Computing and Technologies* course.
+**Course**: Cloud Computing and Technologies — University of Milan, A.Y. 2025/2026
+**Authors**: Carlo Invernizzi (65885A), Matteo Bertoletti (65865A)
 
 ---
 
-## Project status
+## Live deployment
 
-🟢 **Phase 1: Planning** — Completed
-🟡 **Phase 2: Local development** — In progress
-⚪ **Phase 3: Cloud deployment** — Not started
-⚪ **Phase 4: Demo preparation** — Not started
+| | |
+|---|---|
+| Base URL | `https://cloud-computing-uni.duckdns.org` |
+| Example | `GET /api/v1/catalog/products` |
+| Demo admin | `admin@example.com` / `Password123!` |
+| Demo customer | `customer@example.com` / `Password123!` |
+
+> The AWS EC2 instance may be stopped between sessions to stay within free-tier limits.
 
 ---
 
 ## Architecture
 
-The system is composed of **4 business microservices** behind a single **Kong API Gateway**, deployed on an **AWS EC2 VM** with end-to-end HTTPS.
+Traffic enters through nginx (TLS termination) and is forwarded to the Kong API Gateway, which handles routing, JWT validation, and rate limiting across replicated microservices.
 
 ```
-                            ┌──────────────┐
-                            │   Client     │
-                            └──────┬───────┘
-                                   │ HTTPS
-                                   ▼
-                       ┌────────────────────────┐
-                       │   Kong API Gateway     │  (×2 replicas)
-                       │  JWT, rate limit, LB   │
-                       └───────────┬────────────┘
-                                   │
-              ┌──────────┬─────────┼──────────┬──────────┐
-              ▼          ▼         ▼          ▼          ▼
-         ┌────────┐ ┌────────┐ ┌────────┐ ┌────────────┐
-         │catalog │ │ users  │ │ orders │ │  payments  │
-         │  ×3    │ │  ×2    │ │  ×2    │ │    ×2      │
-         └───┬────┘ └───┬────┘ └───┬────┘ └─────┬──────┘
-             │          │          │            │
-             ▼          ▼          ▼            ▼
-         ┌────────┐ ┌────────┐ ┌────────┐ ┌────────────┐
-         │catalog │ │ users  │ │ orders │ │  payments  │
-         │  DB    │ │  DB    │ │  DB    │ │    DB      │
-         │master+ │ │ single │ │ single │ │   single   │
-         │replica │ │  node  │ │  node  │ │    node    │
-         └────────┘ └────────┘ └────────┘ └────────────┘
+Client (HTTPS 443)
+       │
+       ▼
+ ┌───────────┐
+ │   nginx   │  TLS termination, proxy_pass → 127.0.0.1:8000
+ └─────┬─────┘
+       │
+       ▼
+ ┌───────────┐
+ │   Kong    │  JWT RS256, rate limiting, load balancing, passive health checks
+ │  3.9.1    │
+ └─────┬─────┘
+       │
+  ┌────┴──────────────────────┐
+  │           │               │               │
+  ▼           ▼               ▼               ▼
+catalog×3   users×2        orders×2       payments×2
+  │           │               │               │
+  ▼           ▼               ▼               ▼
+catalog-db  users-db       orders-db      payments-db
+(master +   (single)       (single)        (single)
+ replica)
+
+                    Prometheus ←── scrapes all 5 services
+                    Grafana    ←── queries Prometheus
 ```
-
-### Microservices
-
-| Service | Purpose | Replicas |
-|---------|---------|----------|
-| **catalog** | Product catalog, search, stock management | 3 |
-| **users** | Registration, authentication (JWT RS256), profiles, addresses | 2 |
-| **orders** | Shopping cart, checkout, order lifecycle | 2 |
-| **payments** | Simulated payment processing | 2 |
-
-### Supporting infrastructure
-
-| Component | Purpose |
-|-----------|---------|
-| **Kong API Gateway** (×2) | Entry point: routing, JWT validation, rate limiting, load balancing, circuit breaker |
-| **Consul** | Dynamic service discovery |
-| **Prometheus** | Metrics collection |
-| **Grafana** | Observability dashboards |
-| **PostgreSQL** | Per-service databases (catalog: master + read-replica) |
 
 ---
 
 ## Tech stack
 
 - **Runtime**: Node.js 20 LTS
-- **Web framework**: Fastify (with built-in JSON Schema validation)
-- **Database**: PostgreSQL 16
-- **API Gateway**: Kong 3.x (community edition)
-- **Service discovery**: Consul
-- **Monitoring**: Prometheus + Grafana
-- **Container orchestration**: Docker Compose
-- **Cloud provider**: AWS EC2 (Ubuntu 22.04 LTS)
-- **CI/CD**: GitHub Actions
-- **HTTPS**: Let's Encrypt (production), mkcert (local development)
-- **Load testing**: k6
+- **Web framework**: Fastify 4.28.1 (JSON Schema validation built-in)
+- **Database**: PostgreSQL 16.3
+- **ORM**: Prisma (catalog, users) / raw pg driver (orders, payments)
+- **API Gateway**: Kong 3.9.1 community, DB-less declarative mode
+- **Metrics**: prom-client 15.1.3, Prometheus 2.51.2, Grafana 10.4.2
+- **Auth**: JWT RS256 via `@fastify/jwt` 8.0.1; bcrypt cost-factor 12
+- **HTTPS**: nginx + Let's Encrypt (certbot), DuckDNS for DNS
+- **Containers**: Docker Compose
 
 ---
 
-## Project structure
+## The four demos
 
+### ✅ Resilience
+Kill one catalog replica while k6 generates load; Kong's passive health checks reroute traffic to the remaining two replicas within seconds. Zero downtime on the catalog endpoints.
+
+```bash
+# Kill one replica
+docker compose stop $(docker ps --filter name=catalog --format "{{.Names}}" | head -1)
+# Watch k6 keep running
+k6 run scripts/load-tests/catalog.js
 ```
-cloud-computing-api-gateway/
-├── services/                # Business microservices
-│   ├── catalog/
-│   ├── users/
-│   ├── orders/
-│   └── payments/
-├── infrastructure/          # Application infrastructure
-│   ├── kong/                # Kong declarative config
-│   ├── consul/              # Service discovery config
-│   └── monitoring/          # Prometheus + Grafana
-├── deployment/              # Cloud deployment artifacts
-│   ├── aws/                 # Cloud-init bootstrap, security groups
-│   ├── ci-cd/               # GitHub Actions workflows
-│   └── ssl/                 # Certbot config
-├── docs/                    # Documentation
-│   ├── api-contracts/       # API contracts per service
-│   ├── architecture/        # Database schema, ADRs
-│   └── demos/               # Exam demo scripts
-├── scripts/                 # Utility scripts
-│   ├── load-tests/          # k6 load test scenarios
-│   └── chaos/               # Failure simulation scripts
-├── docker-compose.yml       # Production orchestration
-├── docker-compose.dev.yml   # Local development overrides
-├── README.md                # This file
-└── CLAUDE.md                # Project context for Claude Code
+
+### ✅ Security
+JWT RS256: the `users` service holds the private key; Kong holds only the public key and validates every token at the gateway before the request reaches any microservice. Login is rate-limited to 10 req/min per IP; browsing to 100 req/min. Passwords are bcrypt-hashed at cost 12. All inter-service traffic stays on the internal Docker network; only Kong is reachable from outside.
+
+```bash
+# Get a token
+curl -X POST https://cloud-computing-uni.duckdns.org/api/v1/users/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"customer@example.com","password":"Password123!"}'
+
+# Trigger rate-limit (10 rapid login attempts)
+for i in $(seq 1 12); do
+  curl -s -o /dev/null -w "%{http_code}\n" \
+    -X POST https://cloud-computing-uni.duckdns.org/api/v1/users/auth/login \
+    -H "Content-Type: application/json" \
+    -d '{"email":"x@x.com","password":"wrong"}'; done
+```
+
+### ✅ Replication
+The catalog database runs as a PostgreSQL streaming replication pair (master + hot standby). The catalog service reads from the replica and writes to the master. Kill the master; the replica promotes and reads continue. Microservice replicas are declared via `deploy.replicas` in `docker-compose.yml`.
+
+```bash
+# Simulate master failure
+bash scripts/chaos/kill-catalog-db-master.sh
+```
+
+### ✅ Cloud deployment
+AWS EC2 Ubuntu 22.04, single VM, all services containerised. HTTPS via Let's Encrypt + DuckDNS. Provisioned with a single setup script; reproducible from scratch.
+
+```bash
+# Provision HTTPS on a fresh VM
+sudo bash deployment/aws/setup-https.sh
 ```
 
 ---
 
-## Non-functional properties
+## Quick start (local)
 
-This project is explicitly designed around four properties, as specified by the course professor:
+**Prerequisites**: Docker Desktop, `git`.
 
-### 🛡️ Resilience
-- 2–3 replicas per business service; Kong itself replicated ×2
-- Healthchecks and automatic restart policies on every container
-- HTTP retries with exponential backoff between services
-- Circuit breaker at the gateway level (Kong plugins)
-- Graceful degradation: if payments is down, browsing and login still work
+```bash
+git clone <repo-url>
+cd cloud-computing-api-gateway
+cp .env.example .env         # fill in the passwords
+docker compose up -d
+```
 
-### 🔒 Security
-- HTTPS end-to-end (Let's Encrypt in production)
-- JWT with **RS256** asymmetric signing (users service signs, Kong verifies)
-- bcrypt with cost factor 12 for password hashing
-- Rate limiting differentiated per endpoint sensitivity (10 req/min for login, 100 req/min for browsing)
-- Strict input validation via JSON Schema
-- Dedicated audit logging for security-relevant events
-- Network isolation: only Kong is publicly exposed
-- Restrictive AWS Security Group (ports 22, 80, 443 only)
+| URL | Service |
+|-----|---------|
+| `http://localhost:8000` | Kong proxy (all API routes) |
+| `http://localhost:8001` | Kong Admin API (dev only — never expose in prod) |
+| `http://localhost:3000` | Grafana (anonymous viewer, admin/admin) |
+| `http://localhost:9090` | Prometheus |
 
-### 🔁 Replication
-- Microservice replicas managed declaratively in `docker-compose.yml`
-- All services are stateless to allow horizontal scaling
-- Catalog database with **PostgreSQL streaming replication** (master + read-replica)
-- Read-heavy queries routed to the replica, writes to the master
+Scale a service:
+```bash
+docker compose up -d --scale catalog=3
+```
 
-### ☁️ Articulated cloud deployment
-- AWS EC2 VM with automated provisioning via cloud-init script
-- Real HTTPS via Let's Encrypt + free domain (DuckDNS)
-- CI/CD pipeline with GitHub Actions: deploy on push to `main`
-- Scheduled backups of database volumes
-- Reproducible environment from scratch
+Tail logs:
+```bash
+docker compose logs -f orders
+```
+
+Stop everything (keep volumes):
+```bash
+docker compose down
+```
+
+---
+
+## Cloud deployment (AWS EC2)
+
+```bash
+# 1. SSH into the VM
+ssh -i ~/.ssh/key.pem ubuntu@16.171.60.33
+
+# 2. Clone the repo
+git clone <repo-url> /opt/app && cd /opt/app
+cp .env.example .env   # fill secrets
+
+# 3. Set up HTTPS (nginx + certbot, idempotent)
+sudo bash deployment/aws/setup-https.sh
+
+# 4. Start the stack
+docker compose up -d
+```
+
+Requires AWS Security Group inbound rules: **22** (SSH, restricted IPs), **80** (HTTP), **443** (HTTPS). All other ports closed.
 
 ---
 
 ## Documentation
 
-Detailed planning artifacts are available in the `docs/` directory:
-
-- 📊 [Database schema](./docs/architecture/database-schema.md) — entity-relationship and table definitions for each service
-- 🌐 API contracts:
-  - [catalog](./docs/api-contracts/catalog.md)
-  - [users](./docs/api-contracts/users.md)
-  - [orders](./docs/api-contracts/orders.md) (includes shopping cart endpoints)
-  - [payments](./docs/api-contracts/payments.md)
-- 🤖 [CLAUDE.md](./CLAUDE.md) — project-wide context, conventions, and routing rules for Claude Code
+- `docs/api-contracts/` — OpenAPI specs per service (catalog, users, orders, payments)
+- `docs/architecture/` — Database schemas, architecture decision records
+- `infrastructure/kong/kong.yml` — Full Gateway routing and plugin configuration
+- `infrastructure/monitoring/` — Prometheus scrape config, alert rules, Grafana dashboard
 
 ---
 
-## Setup and run
+## Known limitations
 
-> ⚠️ **Note**: this section will be completed during Phase 2 (local development). The `docker-compose.yml` is not yet implemented.
-
-### Prerequisites (planned)
-- Docker Desktop (with Docker Compose)
-- Node.js 20 LTS
-- Bruno or Postman (for API testing)
-
-### Local development (planned)
-```bash
-# Start the entire stack
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
-
-# Scale a service to N replicas
-docker compose up -d --scale catalog=3
-
-# View logs
-docker compose logs -f catalog
-
-# Stop everything
-docker compose down -v
-```
-
-### Cloud deployment (planned)
-Deployment to AWS EC2 happens automatically via GitHub Actions on push to `main`. Manual deployment instructions will be documented here.
-
----
-
-## Demos planned for the oral examination
-
-Three live demos on the cloud-deployed VM, each targeting one of the non-functional properties:
-
-1. **Resilience and replication** — Generate load with k6, kill a service replica during the test, observe automatic recovery and traffic redistribution.
-2. **Security** — Demonstrate JWT validation, rate limiting, and audit logging on protected endpoints.
-3. **Graceful degradation** — Bring down the payments service entirely; show that browsing, login, and cart operations continue to work, while checkout returns a controlled error.
-
----
-
-## Authors
-
-- **Bertoletti Matteo** — matr. 65865A
-- **Invernizzi Carlo** — matr. 65885A
-
-University of Milano, academic year 2025/2026
-
----
-
-## License
-
-This is a university project, not licensed for redistribution.
+- **Kong runs as a single container** (`container_name` prevents `docker compose scale`; adding a second Kong instance requires a load balancer in front of it, which is out of scope for this project).
+- **No automated CI/CD pipeline** — deployment is manual via SSH.
+- **AWS instance is stopped between sessions** to avoid consuming free-tier credits; cold start takes ~60 seconds.
