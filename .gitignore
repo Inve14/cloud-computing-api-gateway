@@ -148,3 +148,4 @@ vite.config.ts.timestamp-*
 **/.DS_Store
 # JWT RSA keys (NEVER commit private keys)
 infrastructure/jwt-keys/*.pem
+CLAUDE.md
