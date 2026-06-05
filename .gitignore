@@ -149,3 +149,4 @@ vite.config.ts.timestamp-*
 # JWT RSA keys (NEVER commit private keys)
 infrastructure/jwt-keys/*.pem
 CLAUDE.md
+CLAUDE.md
