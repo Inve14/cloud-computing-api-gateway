@@ -348,6 +348,8 @@ services:
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.retention.time=7d'
+      - '--web.external-url=https://cloud-computing-project.xyz/prometheus/'
+      - '--web.route-prefix=/'
     ports:
       - "9090:9090"
     networks:
@@ -366,6 +368,8 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: admin
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_SERVER_ROOT_URL: "https://cloud-computing-project.xyz/grafana/"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
     volumes:
       - ./infrastructure/monitoring/grafana-datasources.yml:/etc/grafana/provisioning/datasources/prometheus.yml:ro
       - ./infrastructure/monitoring/grafana-dashboards.yml:/etc/grafana/provisioning/dashboards/default.yml:ro
