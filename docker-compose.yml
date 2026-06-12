@@ -349,7 +349,7 @@ services:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.retention.time=7d'
       - '--web.external-url=https://cloud-computing-project.xyz/prometheus/'
-      - '--web.route-prefix=/'
+      - '--web.route-prefix=/prometheus'
     ports:
       - "9090:9090"
     networks:
