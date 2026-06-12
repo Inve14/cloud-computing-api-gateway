@@ -4,9 +4,6 @@
 # Usage:
 #   cp .env.example .env   # fill in passwords first
 #   docker compose up -d
-#
-# This file grows as new microservices are added. Each service that is not
-# yet scaffolded should be added here when its services/ directory is ready.
 
 services:
 
