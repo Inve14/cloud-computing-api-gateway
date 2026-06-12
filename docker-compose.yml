@@ -370,6 +370,7 @@ services:
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
       GF_SERVER_ROOT_URL: "https://cloud-computing-project.xyz/grafana/"
       GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_SERVER_ENFORCE_DOMAIN: "false"
     volumes:
       - ./infrastructure/monitoring/grafana-datasources.yml:/etc/grafana/provisioning/datasources/prometheus.yml:ro
       - ./infrastructure/monitoring/grafana-dashboards.yml:/etc/grafana/provisioning/dashboards/default.yml:ro
